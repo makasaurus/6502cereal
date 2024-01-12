@@ -56,6 +56,7 @@ byte program[] = {
   0x1A,
   0xD0, 0xFD,
   0x8D, 0x00, 0x02,
+  0x58,
   0x40
   };
 
@@ -218,13 +219,8 @@ void writeDataBusToRAM() {
     bool dataBus[8];
     readBus(DATA_BUS, dataBus);
     byte dataBusByte = toByte(dataBus);
-    Serial.println(ram[addressFull], HEX);
     ram[addressFull] = dataBusByte;
-      
     char buff[120];
-    sprintf(buff, "    \t    \t%02X>%02X%02X", dataBusByte, address[0], address[1]);
-    Serial.println(buff);
-    Serial.println(ram[addressFull], HEX);
   }
 }
 
@@ -238,9 +234,13 @@ char fbool(bool b) {
   return b ? '+' : '-';
 }
 
+char dbool(bool b) {
+  return b ? '<' : '>';
+}
+
 void displayStatus() {
   char buff[120];
-  sprintf(buff, "CLK%c\tRWB%c\t%02X@%02X%02X", fbool(_PHI2), fbool(_RWB), data, address[0], address[1]);
+  sprintf(buff, "CLK%c\t%02X %c %02X%02X", fbool(_PHI2), data, dbool(_RWB), address[0], address[1]);
   Serial.println(buff);
 }
 
