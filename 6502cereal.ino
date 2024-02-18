@@ -36,10 +36,36 @@
 #define PHI2O 25
 #define RESB  23
 
+
+// display control lines handle the various functions for a simple display
+#define DISPLAY_CONTROL_LINE_0    62
+#define DISPLAY_CONTROL_LINE_1    63
+#define DISPLAY_CONTROL_LINE_2    64
+
+// skip 4, based on kowalski uses as term in
+#define DISPLAY_CLEAR_INS         0
+#define DISPLAY_PUTCHAR_INS       1
+#define DISPLAY_PUTCHAR_RAW_INS   2
+#define DISPLAY_PUTHEX_INS        3
+#define DISPLAY_SET_X_INS         5
+#define DISPLAY_SET_Y_INS         6
+
+
 const int ADDRESS_BUS[] = {A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15};
 const int ADDRESS_BUS_LOW[] = {A0, A1, A2, A3, A4, A5, A6, A7};
 const int ADDRESS_BUS_HIGH[] = {A8, A9, A10, A11, A12, A13, A14, A15};
 const int DATA_BUS[] = {D0, D1, D2, D3, D4, D5, D6, D7};
+const int DISPLAY_INS_BUS[] = {DISPLAY_CONTROL_LINE_0, DISPLAY_CONTROL_LINE_1, DISPLAY_CONTROL_LINE_2};
+
+// being cheeky and using const so i can use hex numbers
+// addresses for display handling
+const int DISPLAY_CLEAR = 0x3F00;
+const int DISPLAY_PUT_CHAR = 0x3F01;
+const int DISPLAY_PUT_RAW_CHAR = 0x3F02;
+const int DISPLAY_PUT_HEX = 0x3F03;
+// leaving out +4 since kowalski uses io_addr+4 for text input
+const int DISPLAY_SET_X_POS = 0x3F05;
+const int DISPLAY_SET_Y_POS = 0x3F06;
 
 int hz = 5;
 
@@ -50,15 +76,23 @@ byte address[] = {0x00, 0x00};
 byte ram[0x4FF];
 byte pmem[0xFFF];
 
+//byte program[] = {
+//  0x58,
+//  0xA9, 0x01,
+//  0x1A,
+//  0xD0, 0xFD,
+//  0x8D, 0x00, 0x02,
+//  0x58,
+//  0x40
+//  };
+
 byte program[] = {
-  0x58,
-  0xA9, 0x01,
-  0x1A,
-  0xD0, 0xFD,
-  0x8D, 0x00, 0x02,
-  0x58,
-  0x40
-  };
+  0xA9, 0x68,
+  0x8D, 0x01, 0x3F,
+  0xA9, 0x69,
+  0x8D, 0x01, 0x3F,
+  0x4C, 0x00, 0x40
+};
 
 bool _VPB   = false;
 bool _RDY   = false;
@@ -90,12 +124,18 @@ static void toBits(byte inputByte, bool* returnBits) {
     }
 }
 
+static void toInsBits(byte inputByte, bool* returnBits) {
+    for (int i = 0; i < 3; i++) {
+        returnBits[2-i] = (inputByte >> (2 - i)) & 0x01;
+    }
+}
+
 void setup() {
   for (int i = 0; i < 0x100; i++){
     pmem[i] = 0xEA; //nop
   }
 
-  for (int i = 0; i < 11; i++) {
+  for (int i = 0; i < 13; i++) {
     pmem[i] = program[i];
   }
   
@@ -116,6 +156,10 @@ void setup() {
   pinMode(SOB, OUTPUT);
   pinMode(PHI2O, INPUT);
   pinMode(RESB, OUTPUT);
+
+  pinMode(DISPLAY_CONTROL_LINE_0, OUTPUT);
+  pinMode(DISPLAY_CONTROL_LINE_1, OUTPUT);
+  pinMode(DISPLAY_CONTROL_LINE_2, OUTPUT);
 
   handleRWB();
 
@@ -290,19 +334,35 @@ void handleRWB() {
 
 void updateData() {
   int addressFull = (address[0] << 8) + address[1];
+
+  clearDisplayIns();
+  
   if (addressFull == 0xFFFC) {
     data = 0x00;
   }
   else if (addressFull == 0xFFFD) {
-    data = 0x40;
+    data = 0x40; 
   } else if (addressFull == 0xFFFE) {
-    data = 0x06;
+    // data = 0x06;
+    data = 0x00;
   } else if (addressFull == 0xFFFF) {
     data = 0x40;
   } else if (addressFull < 0x1000) {
     data = ram[addressFull];
   } else if (addressFull >= 0x4000 && addressFull < 0x5000) {
     data = pmem[addressFull - 0x4000];
+  } else if (addressFull == DISPLAY_CLEAR) {
+    setDisplayIns(DISPLAY_CLEAR_INS);
+  } else if (addressFull == DISPLAY_PUT_CHAR) {
+    setDisplayIns(DISPLAY_PUTCHAR_INS);
+  } else if (addressFull == DISPLAY_PUT_RAW_CHAR) {
+    setDisplayIns(DISPLAY_PUTCHAR_RAW_INS);
+  } else if (addressFull == DISPLAY_PUT_HEX) {
+    setDisplayIns(DISPLAY_PUTHEX_INS);
+  } else if (addressFull == DISPLAY_SET_X_POS) {
+    setDisplayIns(DISPLAY_SET_X_INS);
+  } else if (addressFull == DISPLAY_SET_Y_POS) {
+    setDisplayIns(DISPLAY_SET_Y_INS);
   } else {
     // data = 0xEA; // NOP  
     data = 0xCB; // WAI
@@ -373,4 +433,21 @@ void sendNMI() {
   cycle();
   cycle();
   _NMIB = true;
+}
+
+void setDisplayIns(int instruction) {
+  bool bits[3];
+  toInsBits(instruction, bits);
+    Serial.println(instruction);
+    for (int i = 0; i < 3; i++) {
+      Serial.print(DISPLAY_INS_BUS[i]);
+      Serial.print(" ");
+      Serial.print(bits[i]);
+      Serial.println();
+      digitalWrite(DISPLAY_INS_BUS[i], bits[i]);
+  }
+}
+
+void clearDisplayIns() {
+  setDisplayIns(0x07);
 }
