@@ -42,6 +42,11 @@
 #define DISPLAY_CONTROL_LINE_1    63
 #define DISPLAY_CONTROL_LINE_2    64
 
+// RAM
+#define RAM_CEB   59  // RAM chip enable
+#define RAM_OEB   60  // RAM output enable
+#define RAM_WEB   61  // RAM write enable
+
 // skip 4, based on kowalski uses as term in
 #define DISPLAY_CLEAR_INS         0
 #define DISPLAY_PUTCHAR_INS       1
@@ -67,6 +72,9 @@ const int DISPLAY_PUT_HEX = 0x3F03;
 const int DISPLAY_SET_X_POS = 0x3F05;
 const int DISPLAY_SET_Y_POS = 0x3F06;
 
+const bool SIMULATE_RAM = false;
+
+
 int hz = 5;
 
 byte data = 0x00;
@@ -86,12 +94,35 @@ byte pmem[0xFFF];
 //  0x40
 //  };
 
-byte program[] = {
-  0xA9, 0x68,
+// hi hi
+//byte program[] = {
+//  0xA9, 0x68,
+//  0x8D, 0x01, 0x3F,
+//  0xA9, 0x69,
+//  0x8D, 0x01, 0x3F,
+//  0x4C, 0x00, 0x40
+//};
+
+byte program[] { 
+  0xA9, 0x00,
+  0x8D, 0x00, 0x02,
+  0xAD, 0x01, 0x02,
+  0x38,
+  0xE9, 0x14,
+  0xD0, 0x0A,
+  0xA9, 0x0A,
   0x8D, 0x01, 0x3F,
-  0xA9, 0x69,
+  0xA9, 0x00,
+  0x8D, 0x01, 0x02,
+  0xAD, 0x00, 0x02,
   0x8D, 0x01, 0x3F,
-  0x4C, 0x00, 0x40
+  0x18,
+  0x69, 0x01,
+  0x8D, 0x00, 0x02,
+  0xAD, 0x01, 0x02,
+  0x69, 0x01,
+  0x8D, 0x01, 0x02,
+  0x4C, 0x05, 0x40
 };
 
 bool _VPB   = false;
@@ -135,7 +166,7 @@ void setup() {
     pmem[i] = 0xEA; //nop
   }
 
-  for (int i = 0; i < 13; i++) {
+  for (int i = 0; i < 46; i++) {
     pmem[i] = program[i];
   }
   
@@ -150,6 +181,12 @@ void setup() {
     pinMode(ADDRESS_BUS[i], INPUT);
   }
 
+  if (SIMULATE_RAM) { 
+    for (int i = 0; i < 16; i++) {
+      pinMode(ADDRESS_BUS[i], INPUT);
+    } 
+  }
+
   pinMode(RWB, INPUT);
   pinMode(BE, OUTPUT);
   pinMode(PHI2, OUTPUT);
@@ -160,6 +197,10 @@ void setup() {
   pinMode(DISPLAY_CONTROL_LINE_0, OUTPUT);
   pinMode(DISPLAY_CONTROL_LINE_1, OUTPUT);
   pinMode(DISPLAY_CONTROL_LINE_2, OUTPUT);
+
+  pinMode(RAM_CEB, OUTPUT);
+  pinMode(RAM_OEB, OUTPUT);
+  pinMode(RAM_WEB, OUTPUT);
 
   handleRWB();
 
@@ -243,17 +284,23 @@ void loop() {
 }
 
 void setDataPinInputMode() {
-  if (!_RWB) {
-    for (int i = 0; i < 8; i++) { 
-      pinMode(DATA_BUS[i], INPUT);
-    }
-    writeDataBusToRAM();
+  if (SIMULATE_RAM) {
+    if (!_RWB) {
+      for (int i = 0; i < 8; i++) { 
+        pinMode(DATA_BUS[i], INPUT);
+      }
+      writeDataBusToRAM();
+    } else {
+      for (int i = 0; i < 8; i++) { 
+        pinMode(DATA_BUS[i], OUTPUT);
+        readAddress();
+        setDataBus();
+      }
+    }    
   } else {
-    for (int i = 0; i < 8; i++) { 
-      pinMode(DATA_BUS[i], OUTPUT);
-      readAddress();
-      setDataBus();
-    }
+		// output to bus if needed
+		// handle bus selector device for ram
+    readAddress();
   }
 }
 
@@ -318,13 +365,13 @@ void cycle() {
   _PHI2 = true;
   delay(500.0/hz);
   updateIO();
-  displayStatus();
+  //displayStatus();
   
 
   _PHI2 = false;
   delay(500.0/hz);
   updateIO();
-  displayStatus();
+  //displayStatus();
 }
 
 void handleRWB() {
@@ -344,11 +391,17 @@ void updateData() {
     data = 0x40; 
   } else if (addressFull == 0xFFFE) {
     // data = 0x06;
+    
+    //data = 0x00;
     data = 0x00;
   } else if (addressFull == 0xFFFF) {
     data = 0x40;
   } else if (addressFull < 0x1000) {
-    data = ram[addressFull];
+    if (SIMULATE_RAM) {
+      data = ram[addressFull];    
+    } else {
+      // read data from bus
+    }
   } else if (addressFull >= 0x4000 && addressFull < 0x5000) {
     data = pmem[addressFull - 0x4000];
   } else if (addressFull == DISPLAY_CLEAR) {
@@ -387,23 +440,30 @@ void updateIO() {
   digitalWrite(PHI2, _PHI2);
   digitalWrite(SOB, _SOB);
   digitalWrite(RESB, _RESB);
-  
-  setDataBus();
-  if (!_RWB) {
-    writeDataBusToRAM();
+
+  if (SIMULATE_RAM) {
+    setDataBus();
+    if (!_RWB) {
+      writeDataBusToRAM();
+    }    
   }
-  
 }
 
 void setDataBus() {
   bool bits[8];
   toBits(data, bits);
-  
   if (_RWB) {
     for (int i = 0; i < 8; i++) {
       digitalWrite(DATA_BUS[i], bits[i]);
     }
   }
+}
+
+void readDataBus() {
+  // set appropriate flags
+  
+  // readBus
+  
 }
 
 void readAddress() {
@@ -438,12 +498,7 @@ void sendNMI() {
 void setDisplayIns(int instruction) {
   bool bits[3];
   toInsBits(instruction, bits);
-    Serial.println(instruction);
     for (int i = 0; i < 3; i++) {
-      Serial.print(DISPLAY_INS_BUS[i]);
-      Serial.print(" ");
-      Serial.print(bits[i]);
-      Serial.println();
       digitalWrite(DISPLAY_INS_BUS[i], bits[i]);
   }
 }
