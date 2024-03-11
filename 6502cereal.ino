@@ -284,6 +284,7 @@ void loop() {
 }
 
 void setDataPinInputMode() {
+  readAddress();
   if (SIMULATE_RAM) {
     if (!_RWB) {
       for (int i = 0; i < 8; i++) { 
@@ -293,14 +294,27 @@ void setDataPinInputMode() {
     } else {
       for (int i = 0; i < 8; i++) { 
         pinMode(DATA_BUS[i], OUTPUT);
-        readAddress();
         setDataBus();
       }
     }    
   } else {
-		// output to bus if needed
 		// handle bus selector device for ram
-    readAddress();
+		if (isRamAddress()) {
+			if (!_RWB) {
+				// read from ram
+				digitalWrite(RAM_CEB, false);
+				digitalWrite(RAM_OEB, false);
+				digitalWrite(RAM_WEB, true);
+
+			} else {
+				// write to ram
+				digitalWrite(RAM_WEB, false);
+				digitalWrite(RAM_CEB, false);
+				digitalWrite(RAM_OEB, true);
+			}
+  	} else {
+			ramWait();
+		}
   }
 }
 
@@ -369,6 +383,9 @@ void cycle() {
   
 
   _PHI2 = false;
+	if (!SIMULATE_RAM) {
+		ramWait(); // disable ram chip
+	}
   delay(500.0/hz);
   updateIO();
   //displayStatus();
@@ -396,11 +413,11 @@ void updateData() {
     data = 0x00;
   } else if (addressFull == 0xFFFF) {
     data = 0x40;
-  } else if (addressFull < 0x1000) {
+  } else if (isRamAddress()) {
     if (SIMULATE_RAM) {
       data = ram[addressFull];    
     } else {
-      // read data from bus
+      readDataBus();
     }
   } else if (addressFull >= 0x4000 && addressFull < 0x5000) {
     data = pmem[addressFull - 0x4000];
@@ -459,11 +476,20 @@ void setDataBus() {
   }
 }
 
-void readDataBus() {
-  // set appropriate flags
-  
-  // readBus
-  
+void readDataBus() {  
+	bool dataBus[8];
+	readBus(DATA_BUS, dataBus);
+	data = toByte(dataBus);
+}
+
+bool isRamAddress() {
+	return (SIMULATE_RAM && addressFull < 0x1000) || (!SIMULATE_RAM && addressFull < 0x4000);
+}
+
+void ramWait() {
+	digitalWrite(RAM_CEB, true);
+	digitalWrite(RAM_OEB, true);
+	digitalWrite(RAM_WEB, true);
 }
 
 void readAddress() {
